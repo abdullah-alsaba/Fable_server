@@ -1,9 +1,8 @@
 const express = require("express");
 const dotenv = require("dotenv");
 const cors = require("cors");
-const dns = require("dns");
 const { MongoClient, ServerApiVersion } = require("mongodb");
-dns.setServers(["8.8.8.8", "1.1.1.1"]);
+
 dotenv.config();
 
 const app = express();
@@ -11,8 +10,13 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const port = process.env.PORT || 3000;
+const port = Number(process.env.PORT) || 8989;
 const uri = process.env.MONGODB_URI;
+
+if (!uri) {
+  console.error("MONGODB_URI is missing from .env");
+  process.exit(1);
+}
 
 const client = new MongoClient(uri, {
   serverApi: {
@@ -22,28 +26,22 @@ const client = new MongoClient(uri, {
   },
 });
 
-async function run() {
+app.get("/", (req, res) => {
+  res.status(200).send("Server is running");
+});
+
+app.listen(port, "0.0.0.0", () => {
+  console.log(`Server running on http://127.0.0.1:${port}`);
+});
+
+async function connectDB() {
   try {
     await client.connect();
-
     await client.db("admin").command({ ping: 1 });
-
-    console.log("Pinged your deployment. Successfully connected to MongoDB!");
-
-    const db = client.db("yourDatabaseName");
-
-    // Your API routes/database operations will go here
+    console.log("MongoDB connected successfully!");
   } catch (error) {
-    console.error("MongoDB connection error:", error);
+    console.error("MongoDB connection error:", error.message);
   }
 }
 
-run();
-
-app.get("/", (req, res) => {
-  res.send("Server is running");
-});
-
-app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
-});
+connectDB();
