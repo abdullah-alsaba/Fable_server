@@ -26,22 +26,50 @@ const client = new MongoClient(uri, {
   },
 });
 
+// Fable database
+const db = client.db("Fable_DB");
+
+// Collections
+const usersCollection = db.collection("users");
+const booksCollection = db.collection("books");
+
+// Test route
 app.get("/", (req, res) => {
-  res.status(200).send("Server is running");
+  res.send("Server is running");
 });
 
-app.listen(port, "0.0.0.0", () => {
-  console.log(`Server running on http://127.0.0.1:${port}`);
+// Test MongoDB
+app.get("/test-db", async (req, res) => {
+  try {
+    const result = await usersCollection.find().toArray();
+
+    res.send({
+      success: true,
+      users: result,
+    });
+  } catch (error) {
+    res.status(500).send({
+      success: false,
+      message: error.message,
+    });
+  }
 });
 
-async function connectDB() {
+// Start server
+async function startServer() {
   try {
     await client.connect();
-    await client.db("admin").command({ ping: 1 });
+
+    await db.command({ ping: 1 });
+
     console.log("MongoDB connected successfully!");
+
+    app.listen(port, "0.0.0.0", () => {
+      console.log(`Server running on port ${port}`);
+    });
   } catch (error) {
     console.error("MongoDB connection error:", error.message);
   }
 }
 
-connectDB();
+startServer();
