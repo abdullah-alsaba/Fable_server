@@ -32,6 +32,7 @@ const db = client.db("Fable_DB");
 // Collections
 const usersCollection = db.collection("users");
 const booksCollection = db.collection("books");
+const authorsCollection = db.collection("authors");
 
 // Test route
 app.get("/", (req, res) => {
@@ -63,6 +64,36 @@ async function startServer() {
     await db.command({ ping: 1 });
 
     console.log("MongoDB connected successfully!");
+
+    app.get('/featuredBooks', async (req, res) => {
+      const cursor = booksCollection.find().limit(6)
+      const result = await cursor.toArray()
+     
+      res.send(result) 
+    })
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     app.listen(port, "0.0.0.0", () => {
       console.log(`Server running on port ${port}`);
