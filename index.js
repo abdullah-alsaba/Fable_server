@@ -1,7 +1,7 @@
 const express = require("express");
 const dotenv = require("dotenv");
 const cors = require("cors");
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
 dotenv.config();
 
@@ -84,6 +84,23 @@ async function startServer() {
       const cursor = booksCollection.find()
       const result = await cursor.toArray()
       res.send(result)
+    });
+
+    app.get("/browse-ebooks/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        let query = { $or: [{ _id: id }, { id: id }] };
+        if (ObjectId.isValid(id)) {
+          query.$or.unshift({ _id: new ObjectId(id) });
+        }
+        const book = await booksCollection.findOne(query);
+        if (!book) {
+          return res.status(404).send({ success: false, message: "Ebook not found" });
+        }
+        res.send(book);
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
     });
 
 
