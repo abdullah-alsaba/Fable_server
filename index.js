@@ -80,6 +80,13 @@ async function startServer() {
     })
 
 
+    app.get("/browse-ebooks", async (req, res) => {
+      const cursor = booksCollection.find()
+      const result = await cursor.toArray()
+      res.send(result)
+    });
+
+
 
 
 
