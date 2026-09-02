@@ -85,18 +85,61 @@ async function startServer() {
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 8;
         const search = req.query.search || req.query.writer || "";
+        const genre = req.query.genre || "";
+        const minPrice = parseFloat(req.query.minPrice);
+        const maxPrice = parseFloat(req.query.maxPrice);
+        const availability = req.query.availability || "all";
         const sortBy = req.query.sortBy || "newest";
 
         let query = {};
+        let conditions = [];
+
+        // Search filter (title or writerName or genre)
         if (search.trim() !== "") {
           const regex = new RegExp(search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), "i");
-          query = {
+          conditions.push({
             $or: [
               { title: regex },
               { writerName: regex },
               { genre: regex }
             ]
-          };
+          });
+        }
+
+        // Genre filter
+        if (genre.trim() !== "" && genre.toLowerCase() !== "all") {
+          const genreRegex = new RegExp(`^${genre.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, "i");
+          conditions.push({ genre: genreRegex });
+        }
+
+        // Price range filter
+        if (!isNaN(minPrice) || !isNaN(maxPrice)) {
+          let priceCondition = {};
+          if (!isNaN(minPrice)) priceCondition.$gte = minPrice;
+          if (!isNaN(maxPrice)) priceCondition.$lte = maxPrice;
+          conditions.push({ price: priceCondition });
+        }
+
+        // Availability filter
+        if (availability === "available") {
+          conditions.push({
+            $or: [
+              { status: { $regex: /^available$/i } },
+              { isSold: false },
+              { status: { $exists: false } }
+            ]
+          });
+        } else if (availability === "sold") {
+          conditions.push({
+            $or: [
+              { status: { $regex: /^sold$/i } },
+              { isSold: true }
+            ]
+          });
+        }
+
+        if (conditions.length > 0) {
+          query = conditions.length === 1 ? conditions[0] : { $and: conditions };
         }
 
         let sortOption = {};
@@ -116,8 +159,18 @@ async function startServer() {
           .limit(limit)
           .toArray();
 
-        // If no pagination params supplied at all, send array for legacy compatibility
-        if (!req.query.page && !req.query.limit && !req.query.search && !req.query.sortBy && !req.query.writer) {
+        // If no query params supplied at all, send array for legacy compatibility
+        if (
+          !req.query.page &&
+          !req.query.limit &&
+          !req.query.search &&
+          !req.query.sortBy &&
+          !req.query.writer &&
+          !req.query.genre &&
+          !req.query.minPrice &&
+          !req.query.maxPrice &&
+          !req.query.availability
+        ) {
           const allEbooks = await booksCollection.find().toArray();
           return res.send(allEbooks);
         }
