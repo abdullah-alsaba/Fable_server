@@ -72,7 +72,12 @@ async function startServer() {
       res.send(result) 
     })
 
-
+    app.get('/authors/top', async (req, res) => {
+      const cursor = authorsCollection.find().sort({ rating: -1 }).limit(3)
+      const result = await cursor.toArray()
+      
+      res.send(result)
+    })
 
 
 
