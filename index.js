@@ -81,9 +81,58 @@ async function startServer() {
 
 
     app.get("/browse-ebooks", async (req, res) => {
-      const cursor = booksCollection.find()
-      const result = await cursor.toArray()
-      res.send(result)
+      try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 8;
+        const search = req.query.search || req.query.writer || "";
+        const sortBy = req.query.sortBy || "newest";
+
+        let query = {};
+        if (search.trim() !== "") {
+          const regex = new RegExp(search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), "i");
+          query = {
+            $or: [
+              { title: regex },
+              { writerName: regex },
+              { genre: regex }
+            ]
+          };
+        }
+
+        let sortOption = {};
+        if (sortBy === "price-low") sortOption = { price: 1 };
+        else if (sortBy === "price-high") sortOption = { price: -1 };
+        else if (sortBy === "title-az") sortOption = { title: 1 };
+        else sortOption = { _id: -1 };
+
+        const totalBooks = await booksCollection.countDocuments(query);
+        const totalPages = Math.ceil(totalBooks / limit) || 1;
+        const skip = (page - 1) * limit;
+
+        const ebooks = await booksCollection
+          .find(query)
+          .sort(sortOption)
+          .skip(skip)
+          .limit(limit)
+          .toArray();
+
+        // If no pagination params supplied at all, send array for legacy compatibility
+        if (!req.query.page && !req.query.limit && !req.query.search && !req.query.sortBy && !req.query.writer) {
+          const allEbooks = await booksCollection.find().toArray();
+          return res.send(allEbooks);
+        }
+
+        res.send({
+          success: true,
+          ebooks,
+          totalBooks,
+          totalPages,
+          currentPage: page,
+          limit
+        });
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
     });
 
     app.get("/browse-ebooks/:id", async (req, res) => {
