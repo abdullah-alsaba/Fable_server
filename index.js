@@ -239,14 +239,65 @@ async function startServer() {
 
     app.post("/api/ebooks", async (req, res) => {
       try {
+        const coverUrl = req.body.cover || req.body.coverImage || "https://images.unsplash.com/photo-1543002588-bfa74002ed7e?auto=format&fit=crop&w=600&q=80";
         const newBook = {
           ...req.body,
+          cover: coverUrl,
+          coverImage: coverUrl,
           price: parseFloat(req.body.price) || 0,
           status: req.body.status || "published",
           createdAt: new Date().toISOString(),
         };
         const result = await booksCollection.insertOne(newBook);
+
+        const writerName = req.body.writerName || req.body.writer || req.body.author;
+        const writerEmail = req.body.writerEmail || req.body.email || "";
+        if (writerName) {
+          await authorsCollection.updateOne(
+            { $or: [{ name: writerName }, { email: writerEmail }] },
+            {
+              $set: {
+                name: writerName,
+                email: writerEmail,
+                genre: req.body.genre || "Fiction",
+                image: req.body.writerImage || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80",
+                updatedAt: new Date().toISOString(),
+              },
+              $inc: { sales: 1 },
+              $setOnInsert: { rating: 4.9, createdAt: new Date().toISOString() },
+            },
+            { upsert: true }
+          );
+        }
+
         res.send({ success: true, insertedId: result.insertedId, book: newBook });
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
+    });
+
+    app.post("/api/authors/sync", async (req, res) => {
+      try {
+        const { name, email, genre, image } = req.body;
+        if (!name && !email) {
+          return res.status(400).send({ success: false, message: "Writer name or email required" });
+        }
+        const writerName = name || email;
+        const result = await authorsCollection.updateOne(
+          { $or: [{ email }, { name: writerName }] },
+          {
+            $set: {
+              name: writerName,
+              email: email || "",
+              genre: genre || "General",
+              image: image || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80",
+              updatedAt: new Date().toISOString(),
+            },
+            $setOnInsert: { rating: 4.9, sales: 0, createdAt: new Date().toISOString() },
+          },
+          { upsert: true }
+        );
+        res.send({ success: true, result });
       } catch (error) {
         res.status(500).send({ success: false, message: error.message });
       }
