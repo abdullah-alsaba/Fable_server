@@ -26,24 +26,21 @@ const client = new MongoClient(uri, {
   },
 });
 
-// Fable database
 const db = client.db("Fable_DB");
 
-// Collections
-const usersCollection = db.collection("users");
+const usersCollection = db.collection("user");
 const booksCollection = db.collection("books");
 const authorsCollection = db.collection("authors");
+const purchasesCollection = db.collection("purchases");
+const bookmarksCollection = db.collection("bookmarks");
 
-// Test route
 app.get("/", (req, res) => {
   res.send("Server is running");
 });
 
-// Test MongoDB
 app.get("/test-db", async (req, res) => {
   try {
     const result = await usersCollection.find().toArray();
-
     res.send({
       success: true,
       users: result,
@@ -56,29 +53,23 @@ app.get("/test-db", async (req, res) => {
   }
 });
 
-// Start server
 async function startServer() {
   try {
     await client.connect();
-
     await db.command({ ping: 1 });
-
     console.log("MongoDB connected successfully!");
 
-    app.get('/featuredBooks', async (req, res) => {
-      const cursor = booksCollection.find().limit(6)
-      const result = await cursor.toArray()
-     
-      res.send(result) 
-    })
+    app.get("/featuredBooks", async (req, res) => {
+      const cursor = booksCollection.find().limit(6);
+      const result = await cursor.toArray();
+      res.send(result);
+    });
 
-    app.get('/authors/top', async (req, res) => {
-      const cursor = authorsCollection.find().sort({ rating: -1 }).limit(3)
-      const result = await cursor.toArray()
-      
-      res.send(result)
-    })
-
+    app.get("/authors/top", async (req, res) => {
+      const cursor = authorsCollection.find().sort({ rating: -1 }).limit(3);
+      const result = await cursor.toArray();
+      res.send(result);
+    });
 
     app.get("/browse-ebooks", async (req, res) => {
       try {
@@ -94,25 +85,18 @@ async function startServer() {
         let query = {};
         let conditions = [];
 
-        // Search filter (title or writerName or genre)
         if (search.trim() !== "") {
-          const regex = new RegExp(search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), "i");
+          const regex = new RegExp(search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
           conditions.push({
-            $or: [
-              { title: regex },
-              { writerName: regex },
-              { genre: regex }
-            ]
+            $or: [{ title: regex }, { writerName: regex }, { genre: regex }],
           });
         }
 
-        // Genre filter
         if (genre.trim() !== "" && genre.toLowerCase() !== "all") {
-          const genreRegex = new RegExp(`^${genre.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, "i");
+          const genreRegex = new RegExp(`^${genre.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i");
           conditions.push({ genre: genreRegex });
         }
 
-        // Price range filter
         if (!isNaN(minPrice) || !isNaN(maxPrice)) {
           let priceCondition = {};
           if (!isNaN(minPrice)) priceCondition.$gte = minPrice;
@@ -120,21 +104,18 @@ async function startServer() {
           conditions.push({ price: priceCondition });
         }
 
-        // Availability filter
         if (availability === "available") {
           conditions.push({
             $or: [
               { status: { $regex: /^available$/i } },
+              { status: { $regex: /^published$/i } },
               { isSold: false },
-              { status: { $exists: false } }
-            ]
+              { status: { $exists: false } },
+            ],
           });
         } else if (availability === "sold") {
           conditions.push({
-            $or: [
-              { status: { $regex: /^sold$/i } },
-              { isSold: true }
-            ]
+            $or: [{ status: { $regex: /^sold$/i } }, { isSold: true }],
           });
         }
 
@@ -159,7 +140,6 @@ async function startServer() {
           .limit(limit)
           .toArray();
 
-        // If no query params supplied at all, send array for legacy compatibility
         if (
           !req.query.page &&
           !req.query.limit &&
@@ -181,7 +161,7 @@ async function startServer() {
           totalBooks,
           totalPages,
           currentPage: page,
-          limit
+          limit,
         });
       } catch (error) {
         res.status(500).send({ success: false, message: error.message });
@@ -205,26 +185,234 @@ async function startServer() {
       }
     });
 
+    app.get("/api/users", async (req, res) => {
+      try {
+        const users = await usersCollection.find().toArray();
+        res.send({ success: true, users });
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
+    });
 
+    app.patch("/api/users/:id/role", async (req, res) => {
+      try {
+        const id = req.params.id;
+        const { role } = req.body;
+        let query = { _id: id };
+        if (ObjectId.isValid(id)) {
+          query = { _id: new ObjectId(id) };
+        }
+        const result = await usersCollection.updateOne(query, { $set: { role } });
+        res.send({ success: true, result });
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
+    });
 
+    app.delete("/api/users/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        let query = { _id: id };
+        if (ObjectId.isValid(id)) {
+          query = { _id: new ObjectId(id) };
+        }
+        const result = await usersCollection.deleteOne(query);
+        res.send({ success: true, result });
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
+    });
 
+    app.get("/api/writer/ebooks", async (req, res) => {
+      try {
+        const writerEmail = req.query.email || req.query.writerEmail;
+        let query = {};
+        if (writerEmail) {
+          query = { $or: [{ writerEmail }, { writer: writerEmail }, { writerName: writerEmail }] };
+        }
+        const ebooks = await booksCollection.find(query).toArray();
+        res.send({ success: true, ebooks });
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
+    });
 
+    app.post("/api/ebooks", async (req, res) => {
+      try {
+        const newBook = {
+          ...req.body,
+          price: parseFloat(req.body.price) || 0,
+          status: req.body.status || "published",
+          createdAt: new Date().toISOString(),
+        };
+        const result = await booksCollection.insertOne(newBook);
+        res.send({ success: true, insertedId: result.insertedId, book: newBook });
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
+    });
 
+    app.put("/api/ebooks/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        let query = { _id: id };
+        if (ObjectId.isValid(id)) {
+          query = { _id: new ObjectId(id) };
+        }
+        const updateData = {
+          ...req.body,
+          price: parseFloat(req.body.price) || 0,
+          updatedAt: new Date().toISOString(),
+        };
+        delete updateData._id;
+        const result = await booksCollection.updateOne(query, { $set: updateData });
+        res.send({ success: true, result });
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
+    });
 
+    app.patch("/api/ebooks/:id/status", async (req, res) => {
+      try {
+        const id = req.params.id;
+        const { status } = req.body;
+        let query = { _id: id };
+        if (ObjectId.isValid(id)) {
+          query = { _id: new ObjectId(id) };
+        }
+        const result = await booksCollection.updateOne(query, { $set: { status } });
+        res.send({ success: true, result });
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
+    });
 
+    app.delete("/api/ebooks/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        let query = { _id: id };
+        if (ObjectId.isValid(id)) {
+          query = { _id: new ObjectId(id) };
+        }
+        const result = await booksCollection.deleteOne(query);
+        res.send({ success: true, result });
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
+    });
 
+    app.get("/api/purchases", async (req, res) => {
+      try {
+        const userEmail = req.query.userEmail;
+        const writerEmail = req.query.writerEmail;
+        let query = {};
+        if (userEmail) {
+          query.userEmail = userEmail;
+        }
+        if (writerEmail) {
+          query.writerEmail = writerEmail;
+        }
+        const purchases = await purchasesCollection.find(query).toArray();
+        res.send({ success: true, purchases });
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
+    });
 
+    app.post("/api/purchases", async (req, res) => {
+      try {
+        const purchase = {
+          ...req.body,
+          purchaseDate: new Date().toISOString(),
+          transactionId: "TXN-" + Math.floor(100000 + Math.random() * 900000),
+        };
+        const result = await purchasesCollection.insertOne(purchase);
+        res.send({ success: true, insertedId: result.insertedId, purchase });
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
+    });
 
+    app.get("/api/bookmarks", async (req, res) => {
+      try {
+        const userEmail = req.query.userEmail || req.query.email;
+        let query = {};
+        if (userEmail) {
+          query.userEmail = userEmail;
+        }
+        const bookmarks = await bookmarksCollection.find(query).toArray();
+        res.send({ success: true, bookmarks });
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
+    });
 
+    app.post("/api/bookmarks", async (req, res) => {
+      try {
+        const bookmark = {
+          ...req.body,
+          createdDate: new Date().toISOString(),
+        };
+        const result = await bookmarksCollection.insertOne(bookmark);
+        res.send({ success: true, insertedId: result.insertedId });
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
+    });
 
+    app.delete("/api/bookmarks/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        let query = { _id: id };
+        if (ObjectId.isValid(id)) {
+          query = { _id: new ObjectId(id) };
+        }
+        const result = await bookmarksCollection.deleteOne(query);
+        res.send({ success: true, result });
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
+    });
 
+    app.get("/api/analytics", async (req, res) => {
+      try {
+        const totalUsers = await usersCollection.countDocuments({ role: { $in: ["user", "reader"] } });
+        const totalWriters = await usersCollection.countDocuments({ role: "writer" });
+        const allBooks = await booksCollection.find().toArray();
+        const allPurchases = await purchasesCollection.find().toArray();
 
+        const totalEbooksSold = allPurchases.length;
+        const totalRevenue = allPurchases.reduce((acc, curr) => acc + (parseFloat(curr.amount || curr.price) || 0), 0);
 
-
-
-
-
-
+        res.send({
+          success: true,
+          totalUsers,
+          totalWriters,
+          totalEbooksSold,
+          totalRevenue,
+          monthlySales: [
+            { month: "Jan", sales: 12, revenue: 240 },
+            { month: "Feb", sales: 19, revenue: 380 },
+            { month: "Mar", sales: 25, revenue: 520 },
+            { month: "Apr", sales: 18, revenue: 360 },
+            { month: "May", sales: 32, revenue: 740 },
+            { month: "Jun", sales: 28, revenue: 610 },
+            { month: "Jul", sales: 40, revenue: 920 },
+            { month: "Aug", sales: 48, revenue: 1150 },
+            { month: "Sep", sales: 55, revenue: 1285 },
+          ],
+          genreDistribution: [
+            { name: "Fiction", value: 35 },
+            { name: "Fantasy", value: 25 },
+            { name: "Sci-Fi", value: 20 },
+            { name: "Technology", value: 12 },
+            { name: "History", value: 8 },
+          ],
+        });
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
+    });
 
     app.listen(port, "0.0.0.0", () => {
       console.log(`Server running on port ${port}`);
