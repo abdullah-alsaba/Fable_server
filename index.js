@@ -153,13 +153,7 @@ async function seedAdminAccount() {
 app.get("/", (req, res) => {
   res.json({
     success: true,
-    message: "Fable Server is running",
-    endpoints: {
-      login: "POST /api/auth/login",
-      featured: "GET /featuredBooks",
-      topAuthors: "GET /authors/top",
-      browse: "GET /browse-ebooks",
-    },
+    message: "Fable Server is running"
   });
 });
 
