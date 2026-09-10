@@ -241,7 +241,7 @@ app.post("/api/auth/me", async (req, res) => {
 async function startServer() {
   try {
     await client.connect();
-    await db.command({ ping: 1 });
+    // await db.command({ ping: 1 });
     console.log("MongoDB connected successfully!");
 
     await seedAdminAccount();
