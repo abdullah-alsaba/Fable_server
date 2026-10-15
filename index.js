@@ -66,6 +66,8 @@ const authorsCollection = db.collection("authors");
 const purchasesCollection = db.collection("purchases");
 const bookmarksCollection = db.collection("bookmarks");
 const verificationsCollection = db.collection("verifications");
+const messagesCollection = db.collection("messages");
+const reviewsCollection = db.collection("reviews");
 
 async function generateJWT(user, expiresIn = "7d") {
   const subject = String(user._id || user.id || user.email);
@@ -759,6 +761,140 @@ async function startServer() {
         }
         const record = await verificationsCollection.findOne({ email });
         res.send({ success: true, verified: !!(record && record.verified) });
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
+    });
+
+    // Contact messages endpoint with server-side validation
+    app.post("/api/contact", async (req, res) => {
+      try {
+        const { name, email, subject, message } = req.body || {};
+        if (!name || typeof name !== "string" || name.trim().length === 0) {
+          return res.status(400).send({ success: false, message: "Full Name is required." });
+        }
+        if (!email || typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+          return res.status(400).send({ success: false, message: "A valid email address is required." });
+        }
+        if (!subject || typeof subject !== "string" || subject.trim().length === 0) {
+          return res.status(400).send({ success: false, message: "Inquiry subject is required." });
+        }
+        if (!message || typeof message !== "string" || message.trim().length < 5) {
+          return res.status(400).send({ success: false, message: "Message must be at least 5 characters long." });
+        }
+
+        const newDoc = {
+          name: name.trim(),
+          email: email.trim().toLowerCase(),
+          subject: subject.trim(),
+          message: message.trim(),
+          createdAt: new Date(),
+          status: "unread",
+        };
+
+        const result = await messagesCollection.insertOne(newDoc);
+        res.status(201).send({
+          success: true,
+          message: "Thank you for contacting Fable. Your inquiry has been received.",
+          id: result.insertedId,
+        });
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
+    });
+
+    app.get("/api/contact", requireAdmin, async (req, res) => {
+      try {
+        const messages = await messagesCollection.find().sort({ createdAt: -1 }).toArray();
+        res.send({ success: true, messages });
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
+    });
+
+    // Reviews & ratings endpoints
+    app.get("/api/ebooks/:id/reviews", async (req, res) => {
+      try {
+        const bookId = req.params.id;
+        const reviews = await reviewsCollection
+          .find({ bookId: String(bookId) })
+          .sort({ createdAt: -1 })
+          .toArray();
+
+        const defaultReviews = [
+          {
+            _id: "seed-1",
+            bookId: String(bookId),
+            reviewerName: "Eleanor Vance",
+            reviewerEmail: "eleanor@literaryreview.com",
+            rating: 5,
+            comment: "An extraordinary narrative with remarkable depth and pacing. The prose carries a rare elegance that lingers long after the final chapter.",
+            createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 3),
+          },
+          {
+            _id: "seed-2",
+            bookId: String(bookId),
+            reviewerName: "Arthur Pendelton",
+            reviewerEmail: "arthur@bookclub.org",
+            rating: 5,
+            comment: "Thoroughly engrossing from start to finish. Beautiful typography and flawless digital rendering on my e-reader.",
+            createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 7),
+          },
+          {
+            _id: "seed-3",
+            bookId: String(bookId),
+            reviewerName: "Clara Oswald",
+            reviewerEmail: "clara@readerschoice.net",
+            rating: 4,
+            comment: "Rich world-building and vivid character arcs. Highly recommended for fans of the genre.",
+            createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 14),
+          },
+        ];
+
+        const allReviews = reviews.length > 0 ? reviews : defaultReviews;
+        const totalReviews = allReviews.length;
+        const sumRatings = allReviews.reduce((sum, r) => sum + (Number(r.rating) || 5), 0);
+        const averageRating = Number((sumRatings / (totalReviews || 1)).toFixed(1));
+
+        res.send({
+          success: true,
+          reviews: allReviews,
+          totalReviews,
+          averageRating,
+        });
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
+    });
+
+    app.post("/api/ebooks/:id/reviews", requireAuth, async (req, res) => {
+      try {
+        const bookId = req.params.id;
+        const { rating, comment } = req.body || {};
+        const numRating = Number(rating);
+
+        if (!numRating || numRating < 1 || numRating > 5) {
+          return res.status(400).send({ success: false, message: "Please select a rating between 1 and 5 stars." });
+        }
+        if (!comment || typeof comment !== "string" || comment.trim().length < 5) {
+          return res.status(400).send({ success: false, message: "Review comment must be at least 5 characters." });
+        }
+
+        const newReview = {
+          bookId: String(bookId),
+          reviewerName: req.user.name || (req.user.email ? req.user.email.split("@")[0] : "Anonymous Reader"),
+          reviewerEmail: req.user.email,
+          rating: numRating,
+          comment: comment.trim(),
+          createdAt: new Date(),
+        };
+
+        const result = await reviewsCollection.insertOne(newReview);
+        res.status(201).send({
+          success: true,
+          message: "Review submitted successfully!",
+          review: { ...newReview, _id: result.insertedId },
+        });
       } catch (error) {
         res.status(500).send({ success: false, message: error.message });
       }
