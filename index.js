@@ -271,15 +271,26 @@ app.post("/api/auth/me", async (req, res) => {
   }
 });
 
-async function startServer() {
+let isConnected = false;
+async function connectDB() {
+  if (isConnected) return;
   try {
     await client.connect();
-    // await db.command({ ping: 1 });
+    isConnected = true;
     console.log("MongoDB connected successfully!");
+    seedDemoAccounts().catch((e) => console.error("Seed error:", e.message));
+  } catch (error) {
+    console.error("MongoDB connection error:", error.message);
+  }
+}
+connectDB();
 
-    await seedDemoAccounts();
+app.use(async (req, res, next) => {
+  await connectDB();
+  next();
+});
 
-    app.get("/featuredBooks", async (req, res) => {
+app.get("/featuredBooks", async (req, res) => {
       try {
         const pipeline = [
           {
@@ -951,15 +962,10 @@ async function startServer() {
       }
     });
 
-    app.listen(port, "0.0.0.0", () => {
-      console.log(`🚀 Server running on port ${port}`);
-    });
-  } catch (error) {
-    console.error("MongoDB connection error:", error.message);
-    console.error("Please check your MONGODB_URI and ensure MongoDB Atlas network access allows your IP.");
-  }
+if (!process.env.VERCEL) {
+  app.listen(port, "0.0.0.0", () => {
+    console.log(`🚀 Server running on port ${port}`);
+  });
 }
-
-startServer();
 
 module.exports = app;
