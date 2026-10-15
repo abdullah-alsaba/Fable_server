@@ -30,7 +30,7 @@ const corsOptions = {
       callback(null, true);
     } else {
       console.warn("CORS blocked origin:", origin);
-      callback(null, true);
+      callback(null, false);
     }
   },
   credentials: true,
@@ -109,44 +109,69 @@ async function verifyJWT(req, res, next) {
     };
     next();
   } catch (err) {
-    try {
-      const decoded = decodeJwt(token);
-      req.user = {
-        id: decoded.id,
-        email: decoded.email,
-        name: decoded.name,
-        role: decoded.role,
-        image: decoded.image,
-      };
-    } catch {
-      req.user = null;
-    }
+    req.user = null;
     next();
   }
 }
 
 app.use((req, res, next) => verifyJWT(req, res, next));
 
-async function seedAdminAccount() {
+function requireAuth(req, res, next) {
+  if (!req.user) {
+    return res.status(401).json({ success: false, message: "Unauthorized: Valid access token required" });
+  }
+  next();
+}
+
+function requireAdmin(req, res, next) {
+  if (!req.user) {
+    return res.status(401).json({ success: false, message: "Unauthorized: Valid access token required" });
+  }
+  const role = req.user.role || "";
+  const isAdmin = req.user.email === ADMIN_EMAIL || role === "admin";
+  if (!isAdmin) {
+    return res.status(403).json({ success: false, message: "Forbidden: Admin privileges required" });
+  }
+  next();
+}
+
+async function seedDemoAccounts() {
   try {
-    const existing = await usersCollection.findOne({ email: ADMIN_EMAIL });
-    if (existing) {
-      console.log(`Admin account exists: ${ADMIN_EMAIL}`);
-      return;
-    }
-    const hashedPassword = await bcrypt.hash(ADMIN_PASSWORD, 10);
-    await usersCollection.insertOne({
-      name: "Fable Admin",
-      email: ADMIN_EMAIL,
-      password: hashedPassword,
-      role: "admin",
-      image: "",
-      createdAt: new Date().toISOString(),
-      emailVerified: true,
-    });
-    console.log(`Admin account created: ${ADMIN_EMAIL} / ${ADMIN_PASSWORD}`);
+    const adminHash = await bcrypt.hash(ADMIN_PASSWORD, 10);
+    await usersCollection.updateOne(
+      { email: ADMIN_EMAIL },
+      {
+        $set: {
+          name: "Fable Admin",
+          password: adminHash,
+          role: "admin",
+          emailVerified: true,
+          updatedAt: new Date().toISOString(),
+        },
+        $setOnInsert: { createdAt: new Date().toISOString(), image: "" },
+      },
+      { upsert: true }
+    );
+
+    const demoUserPassword = "Reader@123";
+    const userHash = await bcrypt.hash(demoUserPassword, 10);
+    await usersCollection.updateOne(
+      { email: "reader@fable.com" },
+      {
+        $set: {
+          name: "Demo Reader",
+          password: userHash,
+          role: "user",
+          emailVerified: true,
+          updatedAt: new Date().toISOString(),
+        },
+        $setOnInsert: { createdAt: new Date().toISOString(), image: "" },
+      },
+      { upsert: true }
+    );
+    console.log("Demo accounts seeded successfully (Admin & Reader)");
   } catch (err) {
-    console.error("Admin seed failed:", err.message);
+    console.error("Demo accounts seed failed:", err.message);
   }
 }
 
@@ -157,18 +182,30 @@ app.get("/", (req, res) => {
   });
 });
 
-app.get("/test-db", async (req, res) => {
+app.post("/api/auth/token", async (req, res) => {
   try {
-    const result = await usersCollection.find().toArray();
-    res.send({
+    const { email } = req.body || {};
+    if (!email) {
+      return res.status(400).json({ success: false, message: "Email is required" });
+    }
+    const user = await usersCollection.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+    const token = await generateJWT(user, "7d");
+    res.json({
       success: true,
-      users: result,
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role || "user",
+        image: user.image || "",
+      },
     });
-  } catch (error) {
-    res.status(500).send({
-      success: false,
-      message: error.message,
-    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
@@ -238,7 +275,7 @@ async function startServer() {
     // await db.command({ ping: 1 });
     console.log("MongoDB connected successfully!");
 
-    await seedAdminAccount();
+    await seedDemoAccounts();
 
     app.get("/featuredBooks", async (req, res) => {
       try {
@@ -397,7 +434,7 @@ async function startServer() {
       }
     });
 
-    app.get("/api/users", async (req, res) => {
+    app.get("/api/users", requireAdmin, async (req, res) => {
       try {
         const users = await usersCollection.find().toArray();
         res.send({ success: true, users });
@@ -406,7 +443,7 @@ async function startServer() {
       }
     });
 
-    app.patch("/api/users/:id/role", async (req, res) => {
+    app.patch("/api/users/:id/role", requireAdmin, async (req, res) => {
       try {
         const id = req.params.id;
         const { role } = req.body;
@@ -421,7 +458,7 @@ async function startServer() {
       }
     });
 
-    app.delete("/api/users/:id", async (req, res) => {
+    app.delete("/api/users/:id", requireAdmin, async (req, res) => {
       try {
         const id = req.params.id;
         let query = { _id: id };
@@ -449,7 +486,7 @@ async function startServer() {
       }
     });
 
-    app.post("/api/ebooks", async (req, res) => {
+    app.post("/api/ebooks", requireAuth, async (req, res) => {
       try {
         const coverUrl = req.body.cover || req.body.coverImage || "https://images.unsplash.com/photo-1543002588-bfa74002ed7e?auto=format&fit=crop&w=600&q=80";
         const newBook = {
@@ -515,7 +552,7 @@ async function startServer() {
       }
     });
 
-    app.put("/api/ebooks/:id", async (req, res) => {
+    app.put("/api/ebooks/:id", requireAuth, async (req, res) => {
       try {
         const id = req.params.id;
         let query = { _id: id };
@@ -535,7 +572,7 @@ async function startServer() {
       }
     });
 
-    app.patch("/api/ebooks/:id/status", async (req, res) => {
+    app.patch("/api/ebooks/:id/status", requireAuth, async (req, res) => {
       try {
         const id = req.params.id;
         const { status } = req.body;
@@ -550,7 +587,7 @@ async function startServer() {
       }
     });
 
-    app.delete("/api/ebooks/:id", async (req, res) => {
+    app.delete("/api/ebooks/:id", requireAuth, async (req, res) => {
       try {
         const id = req.params.id;
         let query = { _id: id };
@@ -727,7 +764,7 @@ async function startServer() {
       }
     });
 
-    app.get("/api/analytics", async (req, res) => {
+    app.get("/api/analytics", requireAdmin, async (req, res) => {
       try {
         const totalUsers = await usersCollection.countDocuments({ role: { $in: ["user", "reader"] } });
         const totalWriters = await usersCollection.countDocuments({ role: "writer" });
@@ -780,8 +817,6 @@ async function startServer() {
 
     app.listen(port, "0.0.0.0", () => {
       console.log(`🚀 Server running on port ${port}`);
-      console.log(`📌 Admin Email: ${ADMIN_EMAIL} / Password: ${ADMIN_PASSWORD}`);
-      console.log(`🔑 JWT Secret: ${JWT_SECRET_STRING.slice(0, 10)}...`);
     });
   } catch (error) {
     console.error("MongoDB connection error:", error.message);
@@ -790,3 +825,5 @@ async function startServer() {
 }
 
 startServer();
+
+module.exports = app;
